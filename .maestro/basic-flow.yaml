@@ -1,8 +1,8 @@
 appId: com.huntercoles.fatline
 ---
 - launchApp
-- assertNotVisible: "Sorry, something went wrong when fetching rockets"
+- assertNotVisible: "Sorry, something went wrong when fetching stocks"
 - swipe:
     direction: "DOWN"
-- assertVisible: "Rocket image"
-- assertNotVisible: "Sorry, something went wrong when refreshing rockets"
+- assertVisible: "AAPL"
+- assertNotVisible: "Sorry, something went wrong when refreshing stocks"

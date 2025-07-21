@@ -2,7 +2,6 @@ package com.huntercoles.fatline.database
 
 import android.content.Context
 import androidx.room.Room
-import com.huntercoles.fatline.basicfeature.data.local.dao.RocketDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -25,8 +24,4 @@ internal object DatabaseModule {
         AppDatabase::class.java,
         APP_DATABASE_NAME,
     ).build()
-
-    @Singleton
-    @Provides
-    fun provideRocketDao(database: AppDatabase): RocketDao = database.rocketDao()
 }

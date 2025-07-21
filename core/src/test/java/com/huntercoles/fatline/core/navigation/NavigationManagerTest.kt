@@ -55,7 +55,7 @@ class NavigationManagerTest {
         // Then
         objectUnderTest.navigationEvent.test {
             assertEquals(
-                expected = NavigationDestination.Rockets,
+                expected = NavigationDestination.Search,
                 actual = awaitItem().destination,
             )
 
@@ -65,7 +65,7 @@ class NavigationManagerTest {
             )
 
             assertEquals(
-                expected = NavigationDestination.Rockets,
+                expected = NavigationDestination.Search,
                 actual = awaitItem().destination,
             )
 
@@ -75,7 +75,7 @@ class NavigationManagerTest {
             )
 
             assertEquals(
-                expected = NavigationDestination.Rockets,
+                expected = NavigationDestination.Search,
                 actual = awaitItem().destination,
             )
         }
@@ -103,7 +103,7 @@ class NavigationManagerTest {
     private fun generateTestNavigationCommands(number: Int): List<NavigationCommand> = List(number) {
         if (it % 2 == 0) {
             object : NavigationCommand {
-                override val destination = NavigationDestination.Rockets
+                override val destination = NavigationDestination.Search
             }
         } else {
             object : NavigationCommand {
