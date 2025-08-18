@@ -37,6 +37,10 @@ import com.huntercoles.fatline.basicfeature.presentation.StockSearchIntent
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchUiState
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchViewModel
 import com.huntercoles.fatline.basicfeature.presentation.model.StockDisplayable
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 
 @Composable
 fun StockSearchRoute(viewModel: StockSearchViewModel = hiltViewModel()) {
@@ -61,7 +65,8 @@ internal fun StockSearchScreen(
         // Search Bar
         SearchBar(
             query = uiState.searchQuery,
-            onQueryChange = { onIntent(StockSearchIntent.SearchQueryChanged(it)) },
+            onSearchConfirmed = { onIntent(StockSearchIntent.SearchQueryChanged(it)) },
+            onQueryChange = { onIntent(StockSearchIntent.SearchQueryChanged("") ) }, // clear results on text change, optional
             modifier = Modifier.padding(bottom = 16.dp)
         )
         
@@ -83,12 +88,17 @@ internal fun StockSearchScreen(
 @Composable
 private fun SearchBar(
     query: String,
+    onSearchConfirmed: (String) -> Unit,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var text by remember { mutableStateOf(query) }
     OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
+        value = text,
+        onValueChange = {
+            text = it
+            onQueryChange(it)
+        },
         modifier = modifier.fillMaxWidth(),
         placeholder = { Text("Search stocks (e.g., AAPL, Tesla)") },
         leadingIcon = {
@@ -98,6 +108,10 @@ private fun SearchBar(
             )
         },
         singleLine = true,
+        keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(
+            onSearch = { onSearchConfirmed(text) }
+        )
     )
 }
 

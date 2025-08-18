@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  fatline-server:
+    build: .
+    container_name: fatline-server
+    ports:
+      - "8686:8686"  # Remap host port 8686 to container port 8686
+    volumes:
+      - ./:/app
+    restart: unless-stopped

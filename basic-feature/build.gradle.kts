@@ -73,6 +73,7 @@ dependencies {
     implementation(libs.navigation.hilt)
     implementation(libs.kotlin.serialization)
     implementation(libs.retrofit)
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation(libs.room)
     implementation(libs.timber)
     testImplementation(libs.bundles.common.test)
