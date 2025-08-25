@@ -8,4 +8,6 @@ sealed class StockSearchIntent {
     data class StockClicked(val symbol: String) : StockSearchIntent()
     
     data class AddToPortfolio(val symbol: String) : StockSearchIntent()
+    
+    data class AddToWatchlist(val symbol: String, val watchlistId: Long) : StockSearchIntent()
 }

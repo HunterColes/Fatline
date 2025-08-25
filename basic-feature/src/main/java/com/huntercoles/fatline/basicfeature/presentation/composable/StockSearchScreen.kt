@@ -25,6 +25,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -41,13 +44,16 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import com.huntercoles.fatline.portfoliofeature.domain.model.Watchlist
 
 @Composable
 fun StockSearchRoute(viewModel: StockSearchViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val watchlists by viewModel.watchlists.collectAsStateWithLifecycle(emptyList())
 
     StockSearchScreen(
         uiState = uiState,
+        watchlists = watchlists,
         onIntent = viewModel::acceptIntent,
     )
 }
@@ -55,8 +61,12 @@ fun StockSearchRoute(viewModel: StockSearchViewModel = hiltViewModel()) {
 @Composable
 internal fun StockSearchScreen(
     uiState: StockSearchUiState,
+    watchlists: List<Watchlist>,
     onIntent: (StockSearchIntent) -> Unit,
 ) {
+    var showWatchlistDialog by remember { mutableStateOf(false) }
+    var selectedStockSymbol by remember { mutableStateOf<String?>(null) }
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -76,12 +86,40 @@ internal fun StockSearchScreen(
             uiState.isError -> ErrorContent()
             uiState.stocks.isNotEmpty() -> StockListContent(
                 stocks = uiState.stocks,
+                watchlists = watchlists,
                 onStockClick = { onIntent(StockSearchIntent.StockClicked(it)) },
-                onAddToPortfolio = { onIntent(StockSearchIntent.AddToPortfolio(it)) }
+                onAddToPortfolio = { symbol ->
+                    selectedStockSymbol = symbol
+                    showWatchlistDialog = true
+                }
             )
             uiState.searchQuery.isEmpty() -> EmptySearchContent()
             else -> NoResultsContent()
         }
+    }
+    
+    // Watchlist selection dialog
+    if (showWatchlistDialog && selectedStockSymbol != null) {
+        WatchlistSelectionDialog(
+            watchlists = watchlists,
+            stockSymbol = selectedStockSymbol!!,
+            onWatchlistSelected = { watchlist ->
+                selectedStockSymbol?.let { symbol ->
+                    onIntent(StockSearchIntent.AddToWatchlist(symbol, watchlist.id))
+                }
+                showWatchlistDialog = false
+                selectedStockSymbol = null
+            },
+            onCreateNew = {
+                // TODO: Handle create new watchlist
+                showWatchlistDialog = false
+                selectedStockSymbol = null
+            },
+            onDismiss = {
+                showWatchlistDialog = false
+                selectedStockSymbol = null
+            }
+        )
     }
 }
 
@@ -118,6 +156,7 @@ private fun SearchBar(
 @Composable
 private fun StockListContent(
     stocks: List<StockDisplayable>,
+    watchlists: List<Watchlist>,
     onStockClick: (String) -> Unit,
     onAddToPortfolio: (String) -> Unit,
 ) {
@@ -127,6 +166,7 @@ private fun StockListContent(
         items(stocks) { stock ->
             StockCard(
                 stock = stock,
+                watchlists = watchlists,
                 onClick = { onStockClick(stock.symbol) },
                 onAddToPortfolio = { onAddToPortfolio(stock.symbol) }
             )
@@ -137,6 +177,7 @@ private fun StockListContent(
 @Composable
 private fun StockCard(
     stock: StockDisplayable,
+    watchlists: List<Watchlist>,
     onClick: () -> Unit,
     onAddToPortfolio: () -> Unit,
 ) {

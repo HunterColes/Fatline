@@ -7,6 +7,7 @@ import com.huntercoles.fatline.basicfeature.presentation.StockSearchEvent.AddedT
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchEvent.ShowMessage
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchEvent.ShowStockDetails
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchIntent.AddToPortfolio
+import com.huntercoles.fatline.basicfeature.presentation.StockSearchIntent.AddToWatchlist
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchIntent.RefreshStocks
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchIntent.SearchQueryChanged
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchIntent.StockClicked
@@ -16,6 +17,7 @@ import com.huntercoles.fatline.basicfeature.presentation.StockSearchUiState.Part
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchUiState.PartialState.Loading
 import com.huntercoles.fatline.basicfeature.presentation.StockSearchUiState.PartialState.SearchQueryChanged as SearchQueryChangedState
 import com.huntercoles.fatline.basicfeature.presentation.model.StockDisplayable
+import com.huntercoles.fatline.portfoliofeature.domain.repository.WatchlistRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -31,17 +33,26 @@ import org.json.JSONArray
 @HiltViewModel
 class StockSearchViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val stockSearchUiState: StockSearchUiState
+    private val stockSearchUiState: StockSearchUiState,
+    private val watchlistRepository: WatchlistRepository,
 ) : BaseViewModel<StockSearchUiState, PartialState, StockSearchEvent, StockSearchIntent>(
     savedStateHandle = savedStateHandle,
     initialState = stockSearchUiState,
 ) {
+
+    // Expose watchlists for selection dialog
+    val watchlists = watchlistRepository.getAllWatchlists()
+    
+    suspend fun isStockInWatchlist(watchlistId: Long, symbol: String): Boolean {
+        return watchlistRepository.isStockInWatchlist(watchlistId, symbol)
+    }
 
     override fun mapIntents(intent: StockSearchIntent): Flow<PartialState> = when (intent) {
         RefreshStocks -> refreshStocks()
         is SearchQueryChanged -> searchQueryChanged(intent.query)
         is StockClicked -> stockClicked(intent.symbol)
         is AddToPortfolio -> addToPortfolio(intent.symbol)
+        is AddToWatchlist -> addToWatchlist(intent.symbol, intent.watchlistId)
     }
 
     override fun reduceUiState(
@@ -147,8 +158,78 @@ class StockSearchViewModel @Inject constructor(
     }
 
     private fun addToPortfolio(symbol: String): Flow<PartialState> = flow {
-        setEvent(AddedToPortfolio(symbol))
-        setEvent(ShowMessage("$symbol added to portfolio"))
+        try {
+            // Get or create the default watchlist
+            val defaultWatchlist = watchlistRepository.getDefaultWatchlist() 
+                ?: watchlistRepository.createWatchlist("My Watchlist", "#4CAF50")
+            
+            // Find the stock data from current search results
+            val currentState = uiState.value
+            val stockData = currentState.stocks.find { it.symbol == symbol }
+            
+            if (stockData != null) {
+                // Add the stock to the default watchlist
+                watchlistRepository.addStockToWatchlist(
+                    watchlistId = defaultWatchlist.id,
+                    symbol = symbol,
+                    name = stockData.name,
+                    price = stockData.price.replace("$", "").toDoubleOrNull() ?: 0.0,
+                    change = stockData.change.replace("+", "").toDoubleOrNull() ?: 0.0,
+                    changePercent = stockData.changePercent.replace("%", "").toDoubleOrNull() ?: 0.0,
+                    shares = 0.0 // Default to 0 shares (watchlist only)
+                )
+                
+                setEvent(AddedToPortfolio(symbol))
+                setEvent(ShowMessage("$symbol added to ${defaultWatchlist.name}"))
+            } else {
+                setEvent(ShowMessage("Unable to add $symbol to portfolio"))
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error adding stock to portfolio")
+            setEvent(ShowMessage("Error adding $symbol to portfolio"))
+        }
+    }
+
+    private fun addToWatchlist(symbol: String, watchlistId: Long): Flow<PartialState> = flow {
+        try {
+            Timber.d("Adding $symbol to watchlist $watchlistId")
+            
+            // Find the stock data from current search results
+            val currentState = uiState.value
+            val stockData = currentState.stocks.find { it.symbol == symbol }
+            
+            if (stockData != null) {
+                Timber.d("Found stock data: ${stockData.name} - ${stockData.price}")
+                
+                // Check if stock is already in watchlist
+                val isAlreadyAdded = watchlistRepository.isStockInWatchlist(watchlistId, symbol)
+                if (isAlreadyAdded) {
+                    setEvent(ShowMessage("$symbol is already in this watchlist"))
+                    return@flow
+                }
+                
+                // Add the stock to the specified watchlist
+                watchlistRepository.addStockToWatchlist(
+                    watchlistId = watchlistId,
+                    symbol = symbol,
+                    name = stockData.name,
+                    price = stockData.price.replace("$", "").toDoubleOrNull() ?: 0.0,
+                    change = stockData.change.replace("+", "").replace("$", "").toDoubleOrNull() ?: 0.0,
+                    changePercent = stockData.changePercent.replace("%", "").toDoubleOrNull() ?: 0.0,
+                    shares = 0.0 // Default to 0 shares (watchlist only)
+                )
+                
+                Timber.d("Successfully added $symbol to watchlist")
+                setEvent(AddedToPortfolio(symbol))
+                setEvent(ShowMessage("$symbol added to watchlist"))
+            } else {
+                Timber.w("Stock data not found for $symbol")
+                setEvent(ShowMessage("Unable to add $symbol to watchlist"))
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error adding stock to watchlist")
+            setEvent(ShowMessage("Error adding $symbol to watchlist: ${e.message}"))
+        }
     }
 
 }

@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.junit)
     alias(libs.plugins.kotlin)
     alias(libs.plugins.kotlin.compose.compiler)
+    alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.ktlint)
@@ -17,10 +18,6 @@ android {
     with (defaultConfig) {
         minSdk = 26
         targetSdk = 34
-    }
-
-    defaultConfig {
-        buildConfigField("String", "SPACEX_API_URL", "\"https://api.spacexdata.com/v4/\"")
     }
 
     buildFeatures {
@@ -65,10 +62,17 @@ dependencies {
     implementation(libs.navigation)
     implementation(libs.okhttp.logging.interceptor)
     implementation(libs.retrofit)
+    implementation(libs.room)
+    implementation(libs.room.ktx)
     implementation(libs.timber)
     testImplementation(libs.bundles.common.test)
     androidTestImplementation(libs.bundles.common.android.test)
 
     ksp(libs.hilt.compiler)
+    ksp(libs.room.compiler)
     kspAndroidTest(libs.hilt.compiler)
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }

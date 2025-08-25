@@ -1,10 +1,38 @@
 version: '3.8'
+
 services:
   fatline-server:
     build: .
     container_name: fatline-server
     ports:
-      - "8686:8686"  # Remap host port 8686 to container port 8686
+      - "8686:8686"
+    environment:
+      - DATABASE_URL=postgresql://fatline:fatline@postgres:5432/fatline
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./:/app
     restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: fatline-postgres
+    environment:
+      POSTGRES_DB: fatline
+      POSTGRES_USER: fatline
+      POSTGRES_PASSWORD: fatline
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fatline -d fatline"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

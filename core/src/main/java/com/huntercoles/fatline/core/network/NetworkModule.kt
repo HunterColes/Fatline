@@ -42,18 +42,27 @@ internal object NetworkModule {
         }
         .build()
 
+    /**
+     * Provides configured Retrofit instance for API calls
+     * Uses kotlinx.serialization for JSON parsing with sensible defaults
+     * 
+     * @param okHttpClient Pre-configured HTTP client with logging and timeouts
+     * @return Retrofit instance ready for service creation
+     */
     @Provides
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
         val json = Json {
             ignoreUnknownKeys = true
+            coerceInputValues = true
+            encodeDefaults = false
         }
         val contentType = "application/json".toMediaType()
 
         return Retrofit
             .Builder()
             .addConverterFactory(json.asConverterFactory(contentType))
-            .baseUrl(BuildConfig.SPACEX_API_URL)
+            .baseUrl("https://api.example.com/") // Default base URL, will be overridden by repositories
             .client(okHttpClient)
             .build()
     }

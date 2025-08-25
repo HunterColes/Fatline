@@ -43,9 +43,10 @@ FatLine is a virtual stock portfolio application that:
 
 
 Build Commands
-Clean and Build:
+Server Build:
 ```
-gradlew clean build
+cd server
+docker compose up --build
 ```
 Build Debug APK:
 ```
