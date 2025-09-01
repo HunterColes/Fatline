@@ -69,6 +69,8 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.navigation)
     implementation(libs.navigation.hilt)
+    implementation(libs.retrofit)
+    implementation(libs.kotlin.serialization.converter)
     implementation(libs.timber)
     testImplementation(libs.bundles.common.test)
     androidTestImplementation(libs.bundles.common.android.test)

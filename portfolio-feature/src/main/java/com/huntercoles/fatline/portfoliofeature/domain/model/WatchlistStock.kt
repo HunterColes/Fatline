@@ -16,8 +16,7 @@ package com.huntercoles.fatline.portfoliofeature.domain.model
  * @property currency Currency code (typically "USD")
  * @property addedAt Timestamp when stock was added to watchlist
  * @property sortOrder Custom sort order within the watchlist
- * @property shares Optional: Number of shares owned (for portfolio tracking)
- * @property averageCost Optional: Average cost per share (for portfolio tracking)
+ * @property lots List of individual stock lots/purchases
  */
 data class WatchlistStock(
     val id: Long = 0,
@@ -30,19 +29,28 @@ data class WatchlistStock(
     val currency: String?,
     val addedAt: Long = System.currentTimeMillis(),
     val sortOrder: Int = 0,
-    // Portfolio holdings data
-    val shares: Double? = null,
-    val averageCost: Double? = null,
+    // Portfolio holdings data - now using lots
+    val lots: List<StockLot> = emptyList(),
 ) {
     /** Whether the stock price change is positive */
     val isPositive: Boolean get() = (change ?: 0.0) >= 0
+    
+    /** Total number of shares owned across all lots */
+    val shares: Double? get() = if (lots.isNotEmpty()) lots.sumOf { it.shares } else null
+    
+    /** Average cost per share across all lots (weighted by shares) */
+    val averageCost: Double? get() = if (lots.isNotEmpty()) {
+        val totalCost = lots.sumOf { it.totalCost }
+        val totalShares = lots.sumOf { it.shares }
+        if (totalShares > 0) totalCost / totalShares else null
+    } else null
     
     /** Total market value of holdings (shares × current price) */
     val totalValue: Double? get() = shares?.let { currentPrice?.times(it) }
     
     /** Total unrealized gain/loss (market value - cost basis) */
-    val totalReturn: Double? get() = shares?.let { s ->
-        averageCost?.let { avgCost ->
+    val totalReturn: Double? get() = averageCost?.let { avgCost ->
+        shares?.let { s ->
             currentPrice?.let { price ->
                 s * (price - avgCost)
             }

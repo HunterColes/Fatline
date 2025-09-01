@@ -62,9 +62,15 @@ internal object NetworkModule {
         return Retrofit
             .Builder()
             .addConverterFactory(json.asConverterFactory(contentType))
-            .baseUrl("https://api.example.com/") // Default base URL, will be overridden by repositories
+            .baseUrl("http://10.0.2.2:8686/") // Android emulator localhost
             .client(okHttpClient)
             .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideStockApiService(retrofit: Retrofit): StockApiService {
+        return retrofit.create(StockApiService::class.java)
     }
 
     private fun noOpInterceptor(): Interceptor = Interceptor { chain ->

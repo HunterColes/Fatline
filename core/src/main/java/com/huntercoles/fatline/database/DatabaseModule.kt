@@ -24,7 +24,7 @@ internal object DatabaseModule {
         AppDatabase::class.java,
         APP_DATABASE_NAME,
     )
-    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
     .build()
     
     @Provides
@@ -44,4 +44,7 @@ internal object DatabaseModule {
     
     @Provides
     fun provideWatchlistStockDao(database: AppDatabase) = database.watchlistStockDao()
+    
+    @Provides
+    fun provideStockLotDao(database: AppDatabase) = database.stockLotDao()
 }

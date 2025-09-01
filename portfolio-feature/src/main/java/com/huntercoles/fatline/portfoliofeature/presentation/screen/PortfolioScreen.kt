@@ -3,9 +3,12 @@ package com.huntercoles.fatline.portfoliofeature.presentation.screen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -15,15 +18,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.huntercoles.fatline.portfoliofeature.domain.model.Watchlist
 import com.huntercoles.fatline.portfoliofeature.domain.model.WatchlistStock
+import com.huntercoles.fatline.portfoliofeature.domain.model.StockLot
 import com.huntercoles.fatline.portfoliofeature.presentation.viewmodel.PortfolioViewModel
-import kotlin.math.sin
 import kotlin.random.Random
+import kotlin.math.sin
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,6 +42,8 @@ fun PortfolioScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     
     var showCreateWatchlistDialog by remember { mutableStateOf(false) }
+    var selectedStockForLots by remember { mutableStateOf<WatchlistStock?>(null) }
+    var showAddLotDialog by remember { mutableStateOf(false) }
     
     Column(
         modifier = Modifier
@@ -63,11 +72,19 @@ fun PortfolioScreen(
                 }
                 
                 IconButton(onClick = { viewModel.refreshPortfolio() }) {
-                    Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = "Refresh Portfolio",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    if (uiState.isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Refresh Portfolio",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
                 
                 IconButton(onClick = onNavigateToStockSearch) {
@@ -88,7 +105,8 @@ fun PortfolioScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(uiState.watchlists) { watchlist ->
+                items(uiState.watchlists.size) { index ->
+                    val watchlist = uiState.watchlists[index]
                     WatchlistTab(
                         watchlist = watchlist,
                         isSelected = watchlist.id == uiState.selectedWatchlistId,
@@ -113,7 +131,9 @@ fun PortfolioScreen(
             WatchlistContent(
                 watchlist = selectedWatchlist,
                 stocks = uiState.selectedWatchlistStocks,
-                onRemoveStock = { stock -> viewModel.removeStockFromWatchlist(stock.symbol) }
+                isLoading = uiState.isLoading,
+                onRemoveStock = { stock -> viewModel.removeStockFromWatchlist(stock.symbol) },
+                onManageLots = { stock -> selectedStockForLots = stock }
             )
         } ?: run {
             // Empty state
@@ -132,6 +152,28 @@ fun PortfolioScreen(
                 showCreateWatchlistDialog = false
             },
             onDismiss = { showCreateWatchlistDialog = false }
+        )
+    }
+    
+    // Manage lots dialog
+    selectedStockForLots?.let { stock ->
+        ManageLotsDialog(
+            stock = stock,
+            onAddLot = { showAddLotDialog = true },
+            onRemoveLot = { lotId -> viewModel.removeLotFromStock(lotId) },
+            onDismiss = { selectedStockForLots = null }
+        )
+    }
+    
+    // Add lot dialog
+    if (showAddLotDialog && selectedStockForLots != null) {
+        AddLotDialog(
+            stock = selectedStockForLots!!,
+            onAddLot = { shares, price, date ->
+                viewModel.addLotToStock(selectedStockForLots!!.id, shares, price, date)
+                showAddLotDialog = false
+            },
+            onDismiss = { showAddLotDialog = false }
         )
     }
 }
@@ -160,7 +202,9 @@ private fun WatchlistTab(
 private fun WatchlistContent(
     watchlist: Watchlist,
     stocks: List<WatchlistStock>,
-    onRemoveStock: (WatchlistStock) -> Unit
+    isLoading: Boolean,
+    onRemoveStock: (WatchlistStock) -> Unit,
+    onManageLots: (WatchlistStock) -> Unit
 ) {
     Column {
         // Watchlist header with chart
@@ -172,20 +216,74 @@ private fun WatchlistContent(
         )
         
         if (stocks.isNotEmpty()) {
-            // Combined portfolio chart at top
-            PortfolioChart(
-                stocks = stocks,
+            // Portfolio total value display
+            val totalPortfolioValue = stocks.sumOf { it.totalValue ?: 0.0 }
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(120.dp)
-                    .padding(bottom = 16.dp)
-            )
+                    .padding(bottom = 16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Portfolio Value",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "$${String.format("%.2f", totalPortfolioValue)}",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
             
             // Stocks table
-            StocksTable(
-                stocks = stocks,
-                onRemoveStock = onRemoveStock
-            )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                StocksTable(
+                    stocks = stocks,
+                    onRemoveStock = onRemoveStock,
+                    onManageLots = onManageLots
+                )
+                
+                // Loading overlay
+                if (isLoading) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(Color.Black.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            modifier = Modifier.padding(16.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    text = "Refreshing prices...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         } else {
             EmptyWatchlistState()
         }
@@ -296,7 +394,7 @@ private fun MiniPriceChart(
             val path = Path()
             
             // Calculate positions
-            val xStep = width / (points.size - 1)
+            val xStep = width / (points.size - 1).toFloat()
             val minValue = points.minOrNull() ?: 0f
             val maxValue = points.maxOrNull() ?: 1f
             val valueRange = maxValue - minValue
@@ -316,7 +414,7 @@ private fun MiniPriceChart(
             drawPath(
                 path = path,
                 color = chartColor,
-                style = Stroke(width = 2.dp.toPx())
+                style = Stroke(width = 2f)
             )
         }
     }
@@ -391,7 +489,7 @@ private fun PortfolioChart(
                 drawPath(
                     path = path,
                     color = lineColor,
-                    style = Stroke(width = 3.dp.toPx())
+                    style = Stroke(width = 3f)
                 )
             }
             
@@ -417,53 +515,119 @@ private fun PortfolioChart(
 @Composable
 private fun StocksTable(
     stocks: List<WatchlistStock>,
-    onRemoveStock: (WatchlistStock) -> Unit
+    onRemoveStock: (WatchlistStock) -> Unit,
+    onManageLots: (WatchlistStock) -> Unit
 ) {
+    val scrollState = rememberScrollState()
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column {
-            // Table header
+            // Table header - horizontally scrollable
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .horizontalScroll(scrollState)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.Start
             ) {
                 Text(
                     text = "Symbol",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(2f)
+                    modifier = Modifier.width(80.dp),
+                    textAlign = TextAlign.Start
+                )
+                Text(
+                    text = "Name",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(120.dp),
+                    textAlign = TextAlign.Start
+                )
+                Text(
+                    text = "Lots",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(60.dp),
+                    textAlign = TextAlign.End
                 )
                 Text(
                     text = "Price",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1.5f)
+                    modifier = Modifier.width(80.dp),
+                    textAlign = TextAlign.End
                 )
                 Text(
-                    text = "Change",
+                    text = "Change $",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1.5f)
+                    modifier = Modifier.width(80.dp),
+                    textAlign = TextAlign.End
+                )
+                Text(
+                    text = "Change %",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(80.dp),
+                    textAlign = TextAlign.End
+                )
+                Text(
+                    text = "Avg Cost",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(80.dp),
+                    textAlign = TextAlign.End
+                )
+                Text(
+                    text = "Return $",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(80.dp),
+                    textAlign = TextAlign.End
+                )
+                Text(
+                    text = "Return %",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(80.dp),
+                    textAlign = TextAlign.End
+                )
+                Text(
+                    text = "Value",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.width(100.dp),
+                    textAlign = TextAlign.End
                 )
                 // Space for remove button
-                Spacer(modifier = Modifier.weight(0.5f))
+                Spacer(modifier = Modifier.width(48.dp))
             }
             
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             
-            // Table rows
+            // Table rows - horizontally scrollable
             LazyColumn {
-                items(stocks) { stock ->
+                items(stocks.size) { index ->
+                    val stock = stocks[index]
                     StockTableRow(
                         stock = stock,
-                        onRemove = { onRemoveStock(stock) }
+                        scrollState = scrollState,
+                        onRemove = { onRemoveStock(stock) },
+                        onManageLots = onManageLots
                     )
                 }
             }
@@ -475,9 +639,17 @@ private fun StocksTable(
 @Composable
 private fun StockTableRow(
     stock: WatchlistStock,
-    onRemove: () -> Unit
+    scrollState: androidx.compose.foundation.ScrollState,
+    onRemove: () -> Unit,
+    onManageLots: (WatchlistStock) -> Unit
 ) {
     val changeColor = if ((stock.changePercent ?: 0.0) >= 0) {
+        androidx.compose.ui.graphics.Color(0xFF4CAF50)
+    } else {
+        androidx.compose.ui.graphics.Color(0xFFF44336)
+    }
+    
+    val returnColor = if ((stock.returnPercent ?: 0.0) >= 0) {
         androidx.compose.ui.graphics.Color(0xFF4CAF50)
     } else {
         androidx.compose.ui.graphics.Color(0xFFF44336)
@@ -486,57 +658,122 @@ private fun StockTableRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .horizontalScroll(scrollState)
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Symbol and name
-        Column(modifier = Modifier.weight(2f)) {
-            Text(
-                text = stock.symbol,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = stock.name ?: "Unknown",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
-        }
+        // Symbol
+        Text(
+            text = stock.symbol,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.Start
+        )
+        
+        // Name
+        Text(
+            text = stock.name ?: "Unknown",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(120.dp),
+            textAlign = TextAlign.Start,
+            maxLines = 1
+        )
+        
+        // Lots (Shares) - Clickable
+        Text(
+            text = stock.shares?.let { String.format("%.0f", it) } ?: "-",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier
+                .width(60.dp)
+                .clickable { onManageLots(stock) }
+                .background(
+                    color = if (stock.shares != null) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                    shape = RoundedCornerShape(4.dp)
+                )
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            textAlign = TextAlign.End,
+            color = if (stock.shares != null) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+        )
         
         // Price
         Text(
-            text = "$${String.format("%.2f", stock.currentPrice ?: 0.0)}",
+            text = stock.currentPrice?.let { "$${String.format("%.2f", it)}" } ?: "-",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1.5f)
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.End
         )
         
-        // Change
-        Column(
-            modifier = Modifier.weight(1.5f),
-            horizontalAlignment = Alignment.Start
-        ) {
-            val change = stock.change ?: 0.0
-            val changePercent = stock.changePercent ?: 0.0
-            Text(
-                text = "${if (change >= 0) "+" else ""}${String.format("%.2f", change)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = changeColor,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = "${if (changePercent >= 0) "+" else ""}${String.format("%.2f", changePercent)}%",
-                style = MaterialTheme.typography.bodySmall,
-                color = changeColor
-            )
-        }
+        // Change $
+        Text(
+            text = stock.change?.let { 
+                "${if (it >= 0) "+" else ""}${String.format("%.2f", it)}"
+            } ?: "-",
+            style = MaterialTheme.typography.bodySmall,
+            color = changeColor,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.End
+        )
+        
+        // Change %
+        Text(
+            text = stock.changePercent?.let { 
+                "${if (it >= 0) "+" else ""}${String.format("%.2f", it)}%"
+            } ?: "-",
+            style = MaterialTheme.typography.bodySmall,
+            color = changeColor,
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.End
+        )
+        
+        // Avg Cost
+        Text(
+            text = stock.averageCost?.let { "$${String.format("%.2f", it)}" } ?: "-",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.End
+        )
+        
+        // Return $
+        Text(
+            text = stock.totalReturn?.let { 
+                "${if (it >= 0) "+" else ""}${String.format("%.2f", it)}"
+            } ?: "-",
+            style = MaterialTheme.typography.bodySmall,
+            color = returnColor,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.End
+        )
+        
+        // Return %
+        Text(
+            text = stock.returnPercent?.let { 
+                "${if (it >= 0) "+" else ""}${String.format("%.2f", it)}%"
+            } ?: "-",
+            style = MaterialTheme.typography.bodySmall,
+            color = returnColor,
+            modifier = Modifier.width(80.dp),
+            textAlign = TextAlign.End
+        )
+        
+        // Value
+        Text(
+            text = stock.totalValue?.let { "$${String.format("%.2f", it)}" } ?: "-",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.width(100.dp),
+            textAlign = TextAlign.End
+        )
         
         // Remove button
         IconButton(
             onClick = onRemove,
-            modifier = Modifier.weight(0.5f)
+            modifier = Modifier.width(48.dp)
         ) {
             Icon(
                 Icons.Default.Delete,
@@ -546,4 +783,210 @@ private fun StockTableRow(
             )
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ManageLotsDialog(
+    stock: WatchlistStock,
+    onAddLot: () -> Unit,
+    onRemoveLot: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "${stock.symbol} Lots",
+                style = MaterialTheme.typography.headlineSmall
+            )
+        },
+        text = {
+            Column {
+                if (stock.lots.isEmpty()) {
+                    Text(
+                        text = "No lots yet. Add your first lot below.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 300.dp)
+                    ) {
+                        items(stock.lots.size) { index ->
+                            val lot = stock.lots[index]
+                            LotItem(
+                                lot = lot,
+                                currentPrice = stock.currentPrice,
+                                onRemove = { onRemoveLot(lot.id) }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onAddLot) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Add Lot")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun LotItem(
+    lot: com.huntercoles.fatline.portfoliofeature.domain.model.StockLot,
+    currentPrice: Double?,
+    onRemove: () -> Unit
+) {
+    val returnColor = lot.returnPercent(currentPrice)?.let { percent ->
+        if (percent >= 0) androidx.compose.ui.graphics.Color(0xFF4CAF50)
+        else androidx.compose.ui.graphics.Color(0xFFF44336)
+    } ?: MaterialTheme.colorScheme.onSurfaceVariant
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "${String.format("%.0f", lot.shares)} shares",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "$${String.format("%.2f", lot.pricePerShare)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Total: $${String.format("%.2f", lot.totalCost)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        lot.returnPercent(currentPrice)?.let { percent ->
+                            Text(
+                                text = "${if (percent >= 0) "+" else ""}${String.format("%.1f", percent)}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = returnColor,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+                
+                IconButton(
+                    onClick = onRemove,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Remove lot",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddLotDialog(
+    stock: WatchlistStock,
+    onAddLot: (Double, Double, Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var shares by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Add Lot - ${stock.symbol}",
+                style = MaterialTheme.typography.headlineSmall
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                OutlinedTextField(
+                    value = shares,
+                    onValueChange = { shares = it },
+                    label = { Text("Number of Shares") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                OutlinedTextField(
+                    value = price,
+                    onValueChange = { price = it },
+                    label = { Text("Price per Share") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = { date = it },
+                    label = { Text("Purchase Date (MM/DD/YYYY)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val sharesValue = shares.toDoubleOrNull()
+                    val priceValue = price.toDoubleOrNull()
+                    // TODO: Parse date
+                    val dateValue = System.currentTimeMillis()
+                    
+                    if (sharesValue != null && priceValue != null && sharesValue > 0 && priceValue > 0) {
+                        onAddLot(sharesValue, priceValue, dateValue)
+                    }
+                },
+                enabled = shares.isNotBlank() && price.isNotBlank()
+            ) {
+                Text("Add Lot")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

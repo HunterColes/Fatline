@@ -25,16 +25,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
-import java.net.HttpURLConnection
-import java.net.URL
-import org.json.JSONObject
-import org.json.JSONArray
+import com.huntercoles.fatline.core.network.StockApiService
+import com.huntercoles.fatline.core.network.model.StockSearchResponse
 
 @HiltViewModel
 class StockSearchViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val stockSearchUiState: StockSearchUiState,
     private val watchlistRepository: WatchlistRepository,
+    private val stockApiService: StockApiService,
 ) : BaseViewModel<StockSearchUiState, PartialState, StockSearchEvent, StockSearchIntent>(
     savedStateHandle = savedStateHandle,
     initialState = stockSearchUiState,
@@ -87,9 +86,7 @@ class StockSearchViewModel @Inject constructor(
             emit(Loading)
             delay(500) // Debounce
             try {
-                val stocks = withContext(Dispatchers.IO) {
-                    searchStocksFromServer(query)
-                }
+                val stocks = searchStocksFromServer(query)
                 emit(Fetched(stocks))
             } catch (e: Exception) {
                 Timber.e(e, "Error searching stocks")
@@ -100,46 +97,31 @@ class StockSearchViewModel @Inject constructor(
         }
     }
 
-    private fun searchStocksFromServer(query: String): List<StockDisplayable> {
-        val url = URL("http://10.0.2.2:8686/stocks/search?q=${query}")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        conn.connectTimeout = 5000
-        conn.readTimeout = 5000
-        
+    private suspend fun searchStocksFromServer(query: String): List<StockDisplayable> {
         return try {
-            if (conn.responseCode == 200) {
-                val response = conn.inputStream.bufferedReader().use { it.readText() }
-                val jsonArray = org.json.JSONArray(response)
-                val stocks = mutableListOf<StockDisplayable>()
-                
-                for (i in 0 until jsonArray.length()) {
-                    val json = jsonArray.getJSONObject(i)
-                    val change = json.optDouble("change", 0.0)
-                    val changePercent = json.optDouble("changePercent", 0.0)
-                    val price = json.optDouble("price", 0.0)
-                    
-                    stocks.add(StockDisplayable(
-                        symbol = json.optString("symbol"),
-                        name = json.optString("name"),
-                        price = "$${String.format("%.2f", price)}",
-                        change = if (change >= 0) "+${String.format("%.2f", change)}" else "${String.format("%.2f", change)}",
-                        changePercent = "${String.format("%.2f", changePercent)}%",
-                        marketCapFormatted = formatNumber(json.optLong("marketCap")),
-                        volumeFormatted = formatNumber(json.optLong("volume")),
-                        exchange = json.optString("exchange"),
-                        isPositive = change >= 0
-                    ))
+            val response = stockApiService.searchStocks(query)
+            if (response.isSuccessful) {
+                val searchResults = response.body() ?: emptyList()
+                searchResults.map { result ->
+                    StockDisplayable(
+                        symbol = result.symbol,
+                        name = result.name,
+                        price = "$${String.format("%.2f", result.price)}",
+                        change = if (result.change >= 0) "+${String.format("%.2f", result.change)}" else "${String.format("%.2f", result.change)}",
+                        changePercent = "${String.format("%.2f", result.changePercent)}%",
+                        marketCapFormatted = result.marketCap?.let { formatNumber(it) } ?: "",
+                        volumeFormatted = result.volume?.let { formatNumber(it) } ?: "",
+                        exchange = result.exchange,
+                        isPositive = result.change >= 0
+                    )
                 }
-                stocks
             } else {
+                Timber.w("Search failed: ${response.message()}")
                 emptyList()
             }
         } catch (e: Exception) {
             Timber.e(e, "Error searching stocks")
             emptyList()
-        } finally {
-            conn.disconnect()
         }
     }
 

@@ -3,6 +3,7 @@ package com.huntercoles.fatline.portfoliofeature.domain.repository
 import kotlinx.coroutines.flow.Flow
 import com.huntercoles.fatline.portfoliofeature.domain.model.Watchlist
 import com.huntercoles.fatline.portfoliofeature.domain.model.WatchlistStock
+import com.huntercoles.fatline.portfoliofeature.domain.model.StockLot
 
 /**
  * Repository interface for managing watchlists and stock tracking
@@ -127,4 +128,25 @@ interface WatchlistRepository {
      * Updates prices with realistic market simulation
      */
     suspend fun refreshAllStockPrices()
+    
+    // Lot management
+    
+    /**
+     * Add a lot to a stock in a watchlist
+     * @param lot The lot to add
+     */
+    suspend fun addLotToStock(lot: StockLot)
+    
+    /**
+     * Remove a lot from a stock
+     * @param lotId The ID of the lot to remove
+     */
+    suspend fun removeLotFromStock(lotId: Long)
+    
+    /**
+     * Get all lots for a specific stock
+     * @param watchlistStockId The ID of the watchlist-stock relationship
+     * @return Flow emitting list of lots for the stock
+     */
+    fun getStockLots(watchlistStockId: Long): Flow<List<StockLot>>
 }

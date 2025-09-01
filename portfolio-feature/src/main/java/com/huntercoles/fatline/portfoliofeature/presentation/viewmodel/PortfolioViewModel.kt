@@ -5,9 +5,10 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import com.huntercoles.fatline.portfoliofeature.domain.model.StockLot
+import com.huntercoles.fatline.portfoliofeature.domain.repository.WatchlistRepository
 import com.huntercoles.fatline.portfoliofeature.domain.model.Watchlist
 import com.huntercoles.fatline.portfoliofeature.domain.model.WatchlistStock
-import com.huntercoles.fatline.portfoliofeature.domain.repository.WatchlistRepository
 import javax.inject.Inject
 
 @HiltViewModel
@@ -16,19 +17,24 @@ class PortfolioViewModel @Inject constructor(
 ) : ViewModel() {
     
     private val _selectedWatchlistId = MutableStateFlow<Long?>(null)
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _refreshTrigger = MutableStateFlow(0)
     
     val uiState: StateFlow<PortfolioUiState> = combine(
         watchlistRepository.getAllWatchlists(),
-        _selectedWatchlistId
-    ) { watchlists, selectedWatchlistId ->
+        _selectedWatchlistId,
+        _isRefreshing,
+        _refreshTrigger
+    ) { watchlists, selectedWatchlistId, isRefreshing, _ ->
         // Auto-select first watchlist if none selected
         val actualSelectedId = selectedWatchlistId ?: watchlists.firstOrNull()?.id
         if (actualSelectedId != selectedWatchlistId) {
             _selectedWatchlistId.value = actualSelectedId
         }
         
-        Pair(watchlists, actualSelectedId)
-    }.flatMapLatest { (watchlists, selectedId) ->
+        Pair(watchlists, actualSelectedId to isRefreshing)
+    }.flatMapLatest { (watchlists, pair) ->
+        val (selectedId, isRefreshing) = pair
         if (selectedId != null) {
             watchlistRepository.getWatchlistStocks(selectedId).map { stocks ->
                 val selectedWatchlist = watchlists.find { it.id == selectedId }
@@ -37,7 +43,7 @@ class PortfolioViewModel @Inject constructor(
                     selectedWatchlistId = selectedId,
                     selectedWatchlist = selectedWatchlist,
                     selectedWatchlistStocks = stocks,
-                    isLoading = false
+                    isLoading = isRefreshing
                 )
             }
         } else {
@@ -47,7 +53,7 @@ class PortfolioViewModel @Inject constructor(
                     selectedWatchlistId = null,
                     selectedWatchlist = null,
                     selectedWatchlistStocks = emptyList(),
-                    isLoading = false
+                    isLoading = isRefreshing
                 )
             )
         }
@@ -140,11 +146,48 @@ class PortfolioViewModel @Inject constructor(
     fun refreshPortfolio() {
         viewModelScope.launch {
             try {
+                _isRefreshing.value = true
                 watchlistRepository.refreshAllStockPrices()
+            } catch (e: Exception) {
+                // TODO: Handle error
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+    
+    fun addLotToStock(watchlistStockId: Long, shares: Double, pricePerShare: Double, purchaseDate: Long) {
+        viewModelScope.launch {
+            try {
+                val lot = StockLot(
+                    watchlistStockId = watchlistStockId,
+                    shares = shares,
+                    pricePerShare = pricePerShare,
+                    purchaseDate = purchaseDate
+                )
+                watchlistRepository.addLotToStock(lot)
+                // Trigger UI refresh
+                _refreshTrigger.value++
             } catch (e: Exception) {
                 // TODO: Handle error
             }
         }
+    }
+    
+    fun removeLotFromStock(lotId: Long) {
+        viewModelScope.launch {
+            try {
+                watchlistRepository.removeLotFromStock(lotId)
+                // Trigger UI refresh
+                _refreshTrigger.value++
+            } catch (e: Exception) {
+                // TODO: Handle error
+            }
+        }
+    }
+    
+    fun getStockLots(watchlistStockId: Long): Flow<List<StockLot>> {
+        return watchlistRepository.getStockLots(watchlistStockId)
     }
 }
 

@@ -5,13 +5,16 @@ import kotlinx.coroutines.flow.map
 import com.huntercoles.fatline.database.dao.WatchlistDao
 import com.huntercoles.fatline.database.dao.WatchlistStockDao
 import com.huntercoles.fatline.database.dao.StockDao
-import com.huntercoles.fatline.database.dao.WatchlistStockWithDetails
+import com.huntercoles.fatline.database.dao.StockLotDao
 import com.huntercoles.fatline.database.entity.WatchlistEntity
 import com.huntercoles.fatline.database.entity.WatchlistStockEntity
 import com.huntercoles.fatline.database.entity.StockEntity
+import com.huntercoles.fatline.database.entity.StockLotEntity
 import com.huntercoles.fatline.portfoliofeature.domain.model.Watchlist
 import com.huntercoles.fatline.portfoliofeature.domain.model.WatchlistStock
 import com.huntercoles.fatline.portfoliofeature.domain.repository.WatchlistRepository
+import com.huntercoles.fatline.portfoliofeature.domain.model.StockLot
+import com.huntercoles.fatline.core.network.StockApiService
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,7 +23,9 @@ import javax.inject.Singleton
 class WatchlistRepositoryImpl @Inject constructor(
     private val watchlistDao: WatchlistDao,
     private val watchlistStockDao: WatchlistStockDao,
-    private val stockDao: StockDao
+    private val stockDao: StockDao,
+    private val stockLotDao: StockLotDao,
+    private val stockApiService: StockApiService
 ) : WatchlistRepository {
     
     override fun getAllWatchlists(): Flow<List<Watchlist>> {
@@ -59,6 +64,22 @@ class WatchlistRepositoryImpl @Inject constructor(
             Timber.d("Found ${entities.size} stocks in watchlist $watchlistId")
             entities.map { entity ->
                 Timber.d("Stock: ${entity.symbol} - ${entity.name}")
+                // Load lots for this stock - using synchronous call for now
+                // TODO: Make this reactive by combining flows
+                val lots = try {
+                    stockLotDao.getLotsForWatchlistStockSync(entity.id).map { lotEntity ->
+                        StockLot(
+                            id = lotEntity.id,
+                            watchlistStockId = lotEntity.watchlistStockId,
+                            shares = lotEntity.shares,
+                            pricePerShare = lotEntity.pricePerShare,
+                            purchaseDate = lotEntity.purchaseDate
+                        )
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "Error loading lots for stock ${entity.id}")
+                    emptyList<StockLot>()
+                }
                 WatchlistStock(
                     id = entity.id,
                     watchlistId = entity.watchlistId,
@@ -70,8 +91,7 @@ class WatchlistRepositoryImpl @Inject constructor(
                     currency = entity.currency,
                     addedAt = entity.addedAt,
                     sortOrder = entity.sortOrder,
-                    shares = entity.shares,
-                    averageCost = entity.averageCost
+                    lots = lots
                 )
             }
         }
@@ -198,31 +218,54 @@ class WatchlistRepositoryImpl @Inject constructor(
             val allSymbols = stockDao.getAllStockSymbols()
             Timber.d("RefreshAllStockPrices: Found ${allSymbols.size} unique symbols to refresh")
             
-            // In a real app, you would call your stock price API here
-            // For now, we'll simulate price updates with more realistic changes
+            // Fetch real-time prices from the server
             allSymbols.forEach { symbol ->
-                val currentStock = stockDao.getStockBySymbol(symbol)
-                val currentPrice = currentStock?.currentPrice
-                if (currentStock != null && currentPrice != null) {
-                    // Only update if stock hasn't been updated in the last minute (to prevent rapid changes)
-                    val timeSinceLastUpdate = System.currentTimeMillis() - currentStock.lastUpdated
-                    if (timeSinceLastUpdate > 60_000) { // 1 minute cooldown
-                        // Simulate more realistic price changes between -2% and +2%
-                        val changePercent = (kotlin.random.Random.nextDouble() - 0.5) * 0.04 // -2% to +2%
-                        val newPrice = currentPrice * (1 + changePercent)
-                        val priceChange = newPrice - currentPrice
-                        
-                        stockDao.updateStock(
-                            currentStock.copy(
-                                currentPrice = newPrice,
-                                change = priceChange,
-                                changePercent = changePercent * 100,
-                                lastUpdated = System.currentTimeMillis()
-                            )
-                        )
-                        Timber.d("RefreshAllStockPrices: Updated $symbol - new price: $newPrice, change: ${changePercent * 100}%")
-                    } else {
-                        Timber.d("RefreshAllStockPrices: Skipping $symbol - updated too recently")
+                try {
+                    val currentStock = stockDao.getStockBySymbol(symbol)
+                    if (currentStock != null) {
+                        // Only update if stock hasn't been updated in the last minute (to prevent rapid changes)
+                        val timeSinceLastUpdate = System.currentTimeMillis() - currentStock.lastUpdated
+                        if (timeSinceLastUpdate > 60_000) { // 1 minute cooldown
+                            Timber.d("RefreshAllStockPrices: Fetching price for $symbol")
+                            
+                            val response = stockApiService.getStockQuote(symbol)
+                            if (response.isSuccessful) {
+                                val quoteData = response.body()
+                                if (quoteData != null && quoteData.price != null) {
+                                    val newPrice: Double = quoteData.price!!
+                                    val oldPrice: Double = currentStock.currentPrice ?: newPrice
+                                    val priceChange: Double = newPrice - oldPrice
+                                    val changePercent: Double = if (oldPrice != 0.0) (priceChange / oldPrice) * 100.0 else 0.0
+                                    
+                                    stockDao.updateStock(
+                                        currentStock.copy(
+                                            currentPrice = newPrice,
+                                            change = priceChange,
+                                            changePercent = changePercent,
+                                            lastUpdated = System.currentTimeMillis(),
+                                            name = quoteData.name ?: currentStock.name,
+                                            currency = quoteData.currency
+                                        )
+                                    )
+                                    Timber.d("RefreshAllStockPrices: Updated $symbol - new price: $newPrice, change: $changePercent%")
+                                } else {
+                                    Timber.w("RefreshAllStockPrices: No price data for $symbol")
+                                }
+                            } else {
+                                Timber.w("RefreshAllStockPrices: Failed to fetch price for $symbol - ${response.message()}")
+                                // Fallback: simulate small price change to keep data fresh
+                                fallbackPriceUpdate(currentStock)
+                            }
+                        } else {
+                            Timber.d("RefreshAllStockPrices: Skipping $symbol - updated too recently")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "RefreshAllStockPrices: Error updating $symbol")
+                    // Fallback: simulate small price change
+                    val currentStock = stockDao.getStockBySymbol(symbol)
+                    if (currentStock != null) {
+                        fallbackPriceUpdate(currentStock)
                     }
                 }
             }
@@ -230,6 +273,70 @@ class WatchlistRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Timber.e(e, "RefreshAllStockPrices: Error refreshing portfolio")
             throw e
+        }
+    }
+    
+    private suspend fun fallbackPriceUpdate(stock: StockEntity) {
+        // Simulate small realistic price changes when API is unavailable
+        val currentPrice = stock.currentPrice
+        if (currentPrice != null) {
+            val changePercent: Double = (kotlin.random.Random.nextDouble() - 0.5) * 0.02 // -1% to +1%
+            val newPrice: Double = currentPrice * (1.0 + changePercent)
+            val priceChange: Double = newPrice - currentPrice
+            
+            stockDao.updateStock(
+                stock.copy(
+                    currentPrice = newPrice,
+                    change = priceChange,
+                    changePercent = changePercent * 100.0,
+                    lastUpdated = System.currentTimeMillis()
+                )
+            )
+            Timber.d("RefreshAllStockPrices: Fallback update for ${stock.symbol} - new price: $newPrice")
+        }
+    }
+    
+    // Lot management methods
+    override suspend fun addLotToStock(lot: StockLot) {
+        Timber.d("addLotToStock: Adding lot for stock ${lot.watchlistStockId}")
+        try {
+            val entity = StockLotEntity(
+                watchlistStockId = lot.watchlistStockId,
+                shares = lot.shares,
+                pricePerShare = lot.pricePerShare,
+                purchaseDate = lot.purchaseDate
+            )
+            stockLotDao.insertLot(entity)
+            Timber.d("addLotToStock: Successfully added lot for stock ${lot.watchlistStockId}")
+        } catch (e: Exception) {
+            Timber.e(e, "addLotToStock: Error adding lot")
+            throw e
+        }
+    }
+    
+    override suspend fun removeLotFromStock(lotId: Long) {
+        Timber.d("removeLotFromStock: Removing lot $lotId")
+        try {
+            stockLotDao.deleteLotById(lotId)
+            Timber.d("removeLotFromStock: Successfully removed lot $lotId")
+        } catch (e: Exception) {
+            Timber.e(e, "removeLotFromStock: Error removing lot")
+            throw e
+        }
+    }
+    
+    override fun getStockLots(watchlistStockId: Long): Flow<List<StockLot>> {
+        Timber.d("getStockLots: Getting lots for stock $watchlistStockId")
+        return stockLotDao.getLotsForWatchlistStock(watchlistStockId).map { entities ->
+            entities.map { entity ->
+                StockLot(
+                    id = entity.id,
+                    watchlistStockId = entity.watchlistStockId,
+                    shares = entity.shares,
+                    pricePerShare = entity.pricePerShare,
+                    purchaseDate = entity.purchaseDate
+                )
+            }
         }
     }
 }

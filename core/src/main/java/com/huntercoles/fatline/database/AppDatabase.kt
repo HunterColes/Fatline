@@ -11,7 +11,7 @@ import com.huntercoles.fatline.database.dao.*
  * Current database version
  * Increment this when making schema changes and add corresponding migration
  */
-private const val DATABASE_VERSION = 3
+private const val DATABASE_VERSION = 4
 
 /**
  * Main Room database for Fatline stock tracking application
@@ -34,7 +34,8 @@ private const val DATABASE_VERSION = 3
         StockHistoryEntity::class,       // Historical stock price data for charting
         ServerConfigEntity::class,       // Server connection and sync configuration
         WatchlistEntity::class,          // User-created watchlists
-        WatchlistStockEntity::class      // Many-to-many relationship: watchlists ↔ stocks
+        WatchlistStockEntity::class,     // Many-to-many relationship: watchlists ↔ stocks
+        StockLotEntity::class            // Individual stock purchase lots
     ],
     version = DATABASE_VERSION,
     exportSchema = true // Enable schema export for version control and migration testing
@@ -48,6 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun serverConfigDao(): ServerConfigDao
     abstract fun watchlistDao(): WatchlistDao
     abstract fun watchlistStockDao(): WatchlistStockDao
+    abstract fun stockLotDao(): StockLotDao
 }
 
 /**
@@ -108,5 +110,30 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
             INSERT INTO watchlists (name, color, isDefault, createdAt, sortOrder)
             VALUES ('My Watchlist', '#1976D2', 1, ${System.currentTimeMillis()}, 0)
         """)
+    }
+}
+
+/**
+ * Database Migration from Version 3 to 4
+ * Introduces stock lot tracking for detailed position management
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Create stock_lots table for tracking individual purchase lots
+        database.execSQL("""
+            CREATE TABLE IF NOT EXISTS `stock_lots` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `watchlistStockId` INTEGER NOT NULL,
+                `shares` REAL NOT NULL,
+                `pricePerShare` REAL NOT NULL,
+                `purchaseDate` INTEGER NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                FOREIGN KEY(`watchlistStockId`) REFERENCES `watchlist_stocks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+        """)
+
+        // Create performance-optimized indexes
+        database.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_lots_watchlistStockId` ON `stock_lots` (`watchlistStockId`)")
+        database.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_lots_purchaseDate` ON `stock_lots` (`purchaseDate`)")
     }
 }
