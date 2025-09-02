@@ -19,6 +19,8 @@ class PortfolioViewModel @Inject constructor(
     private val _selectedWatchlistId = MutableStateFlow<Long?>(null)
     private val _isRefreshing = MutableStateFlow(false)
     private val _refreshTrigger = MutableStateFlow(0)
+    private val _pendingRefresh = MutableStateFlow(false)
+    private val _lotsDialogOpen = MutableStateFlow(false)
     
     val uiState: StateFlow<PortfolioUiState> = combine(
         watchlistRepository.getAllWatchlists(),
@@ -43,7 +45,8 @@ class PortfolioViewModel @Inject constructor(
                     selectedWatchlistId = selectedId,
                     selectedWatchlist = selectedWatchlist,
                     selectedWatchlistStocks = stocks,
-                    isLoading = isRefreshing
+                    isLoading = isRefreshing,
+                    lotsDialogOpen = _lotsDialogOpen.value
                 )
             }
         } else {
@@ -53,7 +56,8 @@ class PortfolioViewModel @Inject constructor(
                     selectedWatchlistId = null,
                     selectedWatchlist = null,
                     selectedWatchlistStocks = emptyList(),
-                    isLoading = isRefreshing
+                    isLoading = isRefreshing,
+                    lotsDialogOpen = _lotsDialogOpen.value
                 )
             )
         }
@@ -166,8 +170,13 @@ class PortfolioViewModel @Inject constructor(
                     purchaseDate = purchaseDate
                 )
                 watchlistRepository.addLotToStock(lot)
-                // Trigger UI refresh
-                _refreshTrigger.value++
+                
+                // If lots dialog is open, delay refresh until dialog is closed
+                if (_lotsDialogOpen.value) {
+                    _pendingRefresh.value = true
+                } else {
+                    _refreshTrigger.value++
+                }
             } catch (e: Exception) {
                 // TODO: Handle error
             }
@@ -178,11 +187,25 @@ class PortfolioViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 watchlistRepository.removeLotFromStock(lotId)
-                // Trigger UI refresh
-                _refreshTrigger.value++
+                
+                // If lots dialog is open, delay refresh until dialog is closed
+                if (_lotsDialogOpen.value) {
+                    _pendingRefresh.value = true
+                } else {
+                    _refreshTrigger.value++
+                }
             } catch (e: Exception) {
                 // TODO: Handle error
             }
+        }
+    }
+    
+    fun setLotsDialogOpen(open: Boolean) {
+        _lotsDialogOpen.value = open
+        // If closing the dialog and there's a pending refresh, trigger it now
+        if (!open && _pendingRefresh.value) {
+            _pendingRefresh.value = false
+            _refreshTrigger.value++
         }
     }
     
@@ -197,5 +220,6 @@ data class PortfolioUiState(
     val selectedWatchlist: Watchlist? = null,
     val selectedWatchlistStocks: List<WatchlistStock> = emptyList(),
     val isLoading: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val lotsDialogOpen: Boolean = false
 )

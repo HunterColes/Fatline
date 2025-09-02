@@ -25,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import com.huntercoles.fatline.portfoliofeature.domain.model.Watchlist
 import com.huntercoles.fatline.portfoliofeature.domain.model.WatchlistStock
 import com.huntercoles.fatline.portfoliofeature.domain.model.StockLot
@@ -133,7 +134,10 @@ fun PortfolioScreen(
                 stocks = uiState.selectedWatchlistStocks,
                 isLoading = uiState.isLoading,
                 onRemoveStock = { stock -> viewModel.removeStockFromWatchlist(stock.symbol) },
-                onManageLots = { stock -> selectedStockForLots = stock }
+                onManageLots = { stock -> 
+                    selectedStockForLots = stock
+                    viewModel.setLotsDialogOpen(true)
+                }
             )
         } ?: run {
             // Empty state
@@ -159,9 +163,16 @@ fun PortfolioScreen(
     selectedStockForLots?.let { stock ->
         ManageLotsDialog(
             stock = stock,
-            onAddLot = { showAddLotDialog = true },
+            viewModel = viewModel,
+            onAddLot = { 
+                showAddLotDialog = true
+                viewModel.setLotsDialogOpen(true)
+            },
             onRemoveLot = { lotId -> viewModel.removeLotFromStock(lotId) },
-            onDismiss = { selectedStockForLots = null }
+            onDismiss = { 
+                selectedStockForLots = null
+                viewModel.setLotsDialogOpen(false)
+            }
         )
     }
     
@@ -789,10 +800,13 @@ private fun StockTableRow(
 @Composable
 private fun ManageLotsDialog(
     stock: WatchlistStock,
+    viewModel: PortfolioViewModel,
     onAddLot: () -> Unit,
     onRemoveLot: (Long) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val lots: List<StockLot> by viewModel.getStockLots(stock.id).collectAsState(initial = emptyList())
+    
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -803,7 +817,7 @@ private fun ManageLotsDialog(
         },
         text = {
             Column {
-                if (stock.lots.isEmpty()) {
+                if (lots.isEmpty()) {
                     Text(
                         text = "No lots yet. Add your first lot below.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -813,8 +827,8 @@ private fun ManageLotsDialog(
                     LazyColumn(
                         modifier = Modifier.heightIn(max = 300.dp)
                     ) {
-                        items(stock.lots.size) { index ->
-                            val lot = stock.lots[index]
+                        items(lots.size) { index ->
+                            val lot = lots[index]
                             LotItem(
                                 lot = lot,
                                 currentPrice = stock.currentPrice,
@@ -929,6 +943,7 @@ private fun AddLotDialog(
     var shares by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var date by remember { mutableStateOf("") }
+    var dateError by remember { mutableStateOf<String?>(null) }
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -960,9 +975,14 @@ private fun AddLotDialog(
                 
                 OutlinedTextField(
                     value = date,
-                    onValueChange = { date = it },
+                    onValueChange = { 
+                        date = it
+                        dateError = null // Clear error when user types
+                    },
                     label = { Text("Purchase Date (MM/DD/YYYY)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = dateError != null,
+                    supportingText = dateError?.let { { Text(it) } }
                 )
             }
         },
@@ -971,14 +991,24 @@ private fun AddLotDialog(
                 onClick = {
                     val sharesValue = shares.toDoubleOrNull()
                     val priceValue = price.toDoubleOrNull()
-                    // TODO: Parse date
-                    val dateValue = System.currentTimeMillis()
+                    
+                    // Parse and validate date
+                    val dateValue = parseDate(date)
+                    if (dateValue == null) {
+                        dateError = "Invalid date format. Use MM/DD/YYYY"
+                        return@Button
+                    }
+                    
+                    if (dateValue > System.currentTimeMillis()) {
+                        dateError = "Purchase date cannot be in the future"
+                        return@Button
+                    }
                     
                     if (sharesValue != null && priceValue != null && sharesValue > 0 && priceValue > 0) {
                         onAddLot(sharesValue, priceValue, dateValue)
                     }
                 },
-                enabled = shares.isNotBlank() && price.isNotBlank()
+                enabled = shares.isNotBlank() && price.isNotBlank() && date.isNotBlank() && dateError == null
             ) {
                 Text("Add Lot")
             }
@@ -989,4 +1019,24 @@ private fun AddLotDialog(
             }
         }
     )
+}
+
+private fun parseDate(dateString: String): Long? {
+    return try {
+        val parts = dateString.split("/")
+        if (parts.size != 3) return null
+        
+        val month = parts[0].toIntOrNull()?.minus(1) ?: return null // Calendar.MONTH is 0-based
+        val day = parts[1].toIntOrNull() ?: return null
+        val year = parts[2].toIntOrNull() ?: return null
+        
+        if (month !in 0..11 || day !in 1..31 || year < 1900 || year > 2100) return null
+        
+        val calendar = java.util.Calendar.getInstance()
+        calendar.set(year, month, day, 0, 0, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        calendar.timeInMillis
+    } catch (e: Exception) {
+        null
+    }
 }
