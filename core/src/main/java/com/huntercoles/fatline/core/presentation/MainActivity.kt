@@ -1,11 +1,15 @@
 package com.huntercoles.fatline.core.presentation
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -34,6 +38,8 @@ import com.huntercoles.fatline.core.preferences.ThemePreferences
 import com.huntercoles.fatline.core.preferences.isDarkTheme
 import com.huntercoles.fatline.core.utils.collectWithLifecycle
 import javax.inject.Inject
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cloud
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -47,6 +53,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var themePreferences: ThemePreferences
 
+    @Inject
+    lateinit var connectionStatusManager: ConnectionStatusManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -58,7 +67,7 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
 
                 Scaffold(
-                    topBar = { MainTopAppBar() },
+                    topBar = { MainTopAppBar(connectionStatusManager) },
                     bottomBar = { 
                         MainBottomNavigationBar(
                             navController = navController,
@@ -90,12 +99,21 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun MainTopAppBar() {
+private fun MainTopAppBar(connectionStatusManager: ConnectionStatusManager) {
+    val cloudColor by connectionStatusManager.cloudColor.collectAsState()
+
     CenterAlignedTopAppBar(
         title = {
             Text(
                 text = stringResource(id = R.string.app_name),
                 fontWeight = FontWeight.Medium,
+            )
+        },
+        actions = {
+            Icon(
+                imageVector = Icons.Filled.Cloud,
+                contentDescription = "Cloud",
+                tint = cloudColor
             )
         },
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(

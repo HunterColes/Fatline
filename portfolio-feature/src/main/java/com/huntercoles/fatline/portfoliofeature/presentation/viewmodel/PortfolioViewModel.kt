@@ -1,19 +1,24 @@
 package com.huntercoles.fatline.portfoliofeature.presentation.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import com.huntercoles.fatline.portfoliofeature.domain.model.StockLot
 import com.huntercoles.fatline.portfoliofeature.domain.repository.WatchlistRepository
 import com.huntercoles.fatline.portfoliofeature.domain.model.Watchlist
 import com.huntercoles.fatline.portfoliofeature.domain.model.WatchlistStock
+import com.huntercoles.fatline.core.presentation.ConnectionStatusManager
 import javax.inject.Inject
 
 @HiltViewModel
 class PortfolioViewModel @Inject constructor(
-    private val watchlistRepository: WatchlistRepository
+    private val watchlistRepository: WatchlistRepository,
+    @ApplicationContext private val context: Context,
+    private val connectionStatusManager: ConnectionStatusManager
 ) : ViewModel() {
     
     private val _selectedWatchlistId = MutableStateFlow<Long?>(null)
@@ -152,6 +157,8 @@ class PortfolioViewModel @Inject constructor(
             try {
                 _isRefreshing.value = true
                 watchlistRepository.refreshAllStockPrices()
+                // Update connection status after refresh
+                connectionStatusManager.updateConnectionStatus(context)
             } catch (e: Exception) {
                 // TODO: Handle error
             } finally {
